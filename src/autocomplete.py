@@ -27,7 +27,7 @@ WAITING_FOR_INPUT = Text.from_markup("✏️ [b]...[/]")
 class WordClicked(Message):
     """An message used to notify a consumer that a word has been clicked in the ui."""
 
-    def __init__(self, sender: MessageTarget, word: str):
+    def __init__(self, sender: MessageTarget, word: str) -> None:
         self.word = word
         super().__init__(sender)
 
@@ -97,7 +97,7 @@ class AutoCompleter(App):
         self.input = TextInput()
         self.results = ResultsWidget()
 
-    def replace_last(self, string, find, replace):
+    def replace_last(self, string: str, find: str, replace: str) -> str:
         """Replace the last occurrence of a string."""
         reversed = string[::-1]
         replaced = reversed.replace(find[::-1], replace[::-1], 1)
