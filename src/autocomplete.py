@@ -21,7 +21,15 @@ from fast_autocomplete import AutoComplete
 
 from .figlet_widget import FigletTextWidget
 
+
 WAITING_FOR_INPUT = Text.from_markup("✏️ [b]...[/]")
+
+
+def replace_last(string: str, find: str, replace: str) -> str:
+    """Replace the last occurrence of a string."""
+    reversed = string[::-1]
+    replaced = reversed.replace(find[::-1], replace[::-1], 1)
+    return replaced[::-1]
 
 
 class WordClicked(Message):
@@ -73,9 +81,66 @@ class ResultsWidget(Widget):
         return Align.center(Text.assemble(*results), vertical="top")
 
 
+class PredictiveTextInputWidget(TextInput):
+
+    value: Reactive[str] = Reactive("")
+    prediction: Reactive[str] = Reactive("")
+    last_word: Reactive[str] = Reactive("")
+
+    async def on_key(self, event: events.Key) -> None:
+
+        if event.key == "ctrl+i":
+            self.log(f"tab pressed: {self.prediction}")
+            self.value = replace_last(self.value, self.last_word, self.prediction)
+            self._cursor_position = len(self.value)
+            self.last_word = self.prediction
+            await self._emit_on_change(event)
+
+    def _render_text_with_cursor(self) -> list[str | tuple[str, Style]]:
+        """
+        Produces the renderable Text object combining value and cursor
+        """
+
+        if len(self.value) == 0:
+            segments = [self.cursor]
+
+        elif self._cursor_position == 0:
+            segments = [self.cursor, self._conceal_or_reveal(self.value)]
+
+        elif self._cursor_position == len(self.value):
+            prediction: str | Text = ""
+            if len(self.prediction) > 0:
+
+                words = self.value.split()
+                if len(words) > 1:
+                    self.last_word = words[-1]
+                else:
+                    self.last_word = self.value
+
+                if self.prediction != self.last_word and not self.value.endswith(" "):
+                    prediction = Text(
+                        self.prediction[len(self.last_word) :],
+                        style=Style(dim=True, color="green"),
+                    )
+                else:
+                    prediction = ""
+
+            segments = [self.value, self.cursor, prediction]
+
+        else:
+
+            segments = [
+                self._conceal_or_reveal(self.value[: self._cursor_position]),
+                self.cursor,
+                self._conceal_or_reveal(self.value[self._cursor_position :]),
+            ]
+
+        return segments
+
+
 class AutoCompleter(App):
 
-    input: TextInput = None
+    input: PredictiveTextInputWidget
     placeholder: Reactive[str] = Reactive("")
     autocompleter: AutoComplete = None
 
@@ -94,14 +159,8 @@ class AutoCompleter(App):
         """Actions that happen when the app first loads."""
         words = self.get_words()
         self.autocompleter = AutoComplete(words=words)
-        self.input = TextInput()
+        self.input = PredictiveTextInputWidget()
         self.results = ResultsWidget()
-
-    def replace_last(self, string: str, find: str, replace: str) -> str:
-        """Replace the last occurrence of a string."""
-        reversed = string[::-1]
-        replaced = reversed.replace(find[::-1], replace[::-1], 1)
-        return replaced[::-1]
 
     async def on_mount(self) -> None:
         """Actions that happen when the a mount event occurs."""
@@ -128,9 +187,7 @@ class AutoCompleter(App):
         self.log(f"Word clicked {message.word} ")
         current_string = self.input.value.split(" ")[-1]
 
-        self.input.value = self.replace_last(
-            self.input.value, current_string, message.word
-        )
+        self.input.value = replace_last(self.input.value, current_string, message.word)
         self.input._cursor_position = len(self.input.value)
         await self.input.focus()
         self.refresh()
@@ -147,8 +204,10 @@ class AutoCompleter(App):
             word=search_string, max_cost=2, size=5
         )
 
-        if search_result or not search_string:
+        if search_result:
             self.results.values = search_result
+            self.input.prediction = search_result[0]
+
         elif not search_result and not search_string:
             self.results.values = [WAITING_FOR_INPUT]
         else:
